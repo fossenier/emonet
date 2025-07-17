@@ -1,2 +1,5 @@
 # Ignore python venv/
 venv/
+
+# Ignore all test videos
+*.mp4
