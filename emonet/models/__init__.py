@@ -1,2 +1,2 @@
-from .emonet import EmoNet
+from ...src.emonet import EmoNet
 

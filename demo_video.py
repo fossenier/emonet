@@ -96,6 +96,18 @@ def plot_valence_arousal(
     return circumplex_image
 
 
+def get_discreete_emotion_class(emotion_prediction: Dict[str, torch.Tensor]) -> str:
+    """
+    Returns the discrete emotion class from the emotion prediction.
+    """
+    predicted_emotion_class_idx = (
+        torch.argmax(nn.functional.softmax(emotion_prediction["expression"], dim=1))
+        .cpu()
+        .item()
+    )
+    return emotion_classes[predicted_emotion_class_idx]
+
+
 def make_visualization(
     frame_rgb: np.ndarray,
     face_crop_rgb: np.ndarray,
@@ -220,7 +232,12 @@ if __name__ == "__main__":
 
     # Parameters of the experiments
     n_expression = args.nclasses
-    device = "cuda:0"
+    device = (
+        "mps"
+        if torch.backends.mps.is_available()
+        else "cuda" if torch.cuda.is_available() else "cpu"
+    )
+    print(f"Using device: {device}")
     image_size = 256
     emotion_classes = {
         0: "Neutral",
@@ -246,6 +263,8 @@ if __name__ == "__main__":
     visualization_frames = []
 
     for i, frame in enumerate(list_frames_rgb):
+        if i < 200:
+            continue
 
         # Run face detector
         with torch.no_grad():
@@ -253,40 +272,45 @@ if __name__ == "__main__":
             detected_faces = sfd_detector.detect_from_image(frame[:, :, ::-1])
 
         # If at least a face has been detected, run emotion recognition on the first face
-        if len(detected_faces)>0:
+        if len(detected_faces) > 0:
             # Only take the first detected face
             bbox = np.array(detected_faces[0]).astype(np.int32)
 
             face_crop = frame[bbox[1] : bbox[3], bbox[0] : bbox[2], :]
             emotion_prediction = run_emonet(emonet, face_crop.copy())
 
-            visualization_bgr = make_visualization(
-                frame.copy(), face_crop.copy(), bbox, emotion_prediction
-            )
-            visualization_frames.append(visualization_bgr)
+            # visualization_bgr = make_visualization(
+            #     frame.copy(), face_crop.copy(), bbox, emotion_prediction
+            # )
+            # visualization_frames.append(visualization_bgr)
+            visualization_frames.append(get_discreete_emotion_class(emotion_prediction))
         else:
-            # Visualization without emotion
-            visualization = np.zeros(
-                (frame.shape[0], frame.shape[1] + frame.shape[0] // 2, 3),
-                dtype=np.uint8,
-            )
-            visualization[:, : frame.shape[1], :] = frame[:, :, ::-1].astype(np.uint8)
+            # # Visualization without emotion
+            # visualization = np.zeros(
+            #     (frame.shape[0], frame.shape[1] + frame.shape[0] // 2, 3),
+            #     dtype=np.uint8,
+            # )
+            # visualization[:, : frame.shape[1], :] = frame[:, :, ::-1].astype(np.uint8)
 
-            visualization_frames.append(visualization)
+            # visualization_frames.append(visualization)
+            visualization_frames.append("nada")
 
-        if i % 100 == 0:
+        if i % 10 == 0 and i > 200:
+            break
             print(f"Ran prediction on {i}/{len(list_frames_rgb)} frames")
 
     # Write the result as a video
     if visualization_frames:
         save_path = Path(__file__).parent / args.output_path
 
-        out = cv2.VideoWriter(
-            save_path,
-            -1,
-            24.0,
-            (visualization_frames[0].shape[1], visualization_frames[0].shape[0]),
-        )
+        # out = cv2.VideoWriter(
+        #     save_path,
+        #     -1,
+        #     24.0,
+        #     (visualization_frames[0].shape[1], visualization_frames[0].shape[0]),
+        # )
 
-        for frame in visualization_frames:
-            out.write(frame)
+        # for frame in visualization_frames:
+        #     out.write(frame)
+
+        print(visualization_frames)
