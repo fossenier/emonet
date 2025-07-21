@@ -357,7 +357,7 @@ class Visualizer:
 
         if face_bbox is not None and prediction is not None:
             # Draw face bounding box
-            x1, y1, x2, y2 = face_bbox.astype(int)
+            x1, y1, x2, y2 = face_bbox.astype(int)[:4]
             cv2.rectangle(viz, (x1, y1), (x2, y2), (255, 0, 0), 3)
 
             # Add emotion label
@@ -459,7 +459,7 @@ def process_video(video_path: Path, output_path: Path, config: Config) -> None:
                 if detections:
                     # Use first detected face
                     bbox = np.array(detections[0]).astype(int)
-                    x1, y1, x2, y2 = bbox
+                    x1, y1, x2, y2 = bbox[:4]
 
                     # Extract face crop with bounds checking
                     y1, y2 = max(0, y1), min(frame.shape[0], y2)
@@ -516,7 +516,10 @@ def main():
         "--video_path", type=str, required=True, help="Path to input video file"
     )
     parser.add_argument(
-        "--output_path", type=str, required=True, help="Path for output video file"
+        "--output_path",
+        type=str,
+        default="output.mp4",
+        help="Path for output video file",
     )
     parser.add_argument(
         "--nclasses",
