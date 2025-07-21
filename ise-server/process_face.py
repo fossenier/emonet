@@ -50,9 +50,10 @@ def load_face_frames(
     # Grab the fps for data synchronization
     fps = video_capture.get(cv2.CAP_PROP_FPS)
 
-    ret = True
-    while video_capture.isOpened() and ret:
+    while video_capture.isOpened():
         ret, frame = video_capture.read()
+        if not ret:
+            break
         # Necessary conversion for model
         rgb_frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
 
