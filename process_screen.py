@@ -41,5 +41,4 @@ def load_screen_frames(
         screen_frames.append(ScreenFrame(current_time, frame))
         i += 1
 
-    screen_frames.sort(key=lambda f: f.timestamp)
     return screen_frames

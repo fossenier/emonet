@@ -105,7 +105,7 @@ def load_tag_frames(tag_csv_path: str) -> List[TagFrame]:
             # Grab data in the appropriate types
             tag = row["tag"]
             timestamp = pd.to_datetime(row["timestamp"])
-            visible = bool(row["visible"])
+            visible = True if row["visible"] == "True" else False
 
             # Make sure the tag is in the dict
             try:
@@ -119,16 +119,16 @@ def load_tag_frames(tag_csv_path: str) -> List[TagFrame]:
             if tag == "start":
                 continue
 
-            # The tag is becoming visible from invisible
-            if visible and active[tag] == 0:
-                tag_frames.append(TagFrame(timestamp, tag, visible))
-
-            # The tag is becoming invisible from visible
-            if not visible and active[tag] == 1:
-                tag_frames.append(TagFrame(timestamp, tag, visible))
-
             # Track if the tag is active or inactive
-            active[tag] += 1 if visible else (-1)
+            if visible:
+                if active[tag] == 0:
+                    # The tag is becoming visible from invisible
+                    tag_frames.append(TagFrame(timestamp, tag, visible))
+                active[tag] += 1
+            else:
+                if active[tag] == 1:
+                    # The tag is becoming invisible from visible
+                    tag_frames.append(TagFrame(timestamp, tag, visible))
+                active[tag] -= 1
 
-    tag_frames.sort(key=lambda f: f.timestamp)
     return tag_frames

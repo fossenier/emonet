@@ -172,6 +172,7 @@ def process_video(
     fps: float = 10.0,
 ) -> None:
     """Main processing loop."""
+    print(f"Tags! -> {[t.label for t in tag_frames]}")
 
     # Sort all frames by timestamp
     screen_frames.sort(key=lambda x: x.timestamp)
@@ -184,6 +185,7 @@ def process_video(
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
     valence_history = []
+    visible_tags = set()
 
     for i, screen_frame in enumerate(screen_frames):
         current_time = screen_frame.timestamp
@@ -226,8 +228,15 @@ def process_video(
         )
 
         # Add visible tags
-        visible_tags = [t.label for t in interval_tags if t.visible]
-        if visible_tags:
+        for t in interval_tags:
+            if t.visible:
+                print(f"Tag!: {t.label} is visible")
+                visible_tags.add(t.label)
+            else:
+                visible_tags.remove(t.label)
+                print(f"Tag!: {t.label} is not visible")
+
+        if len(visible_tags) > 0:
             cv2.putText(
                 vis_frame,
                 f"Tags: {', '.join(visible_tags)}",

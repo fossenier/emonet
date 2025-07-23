@@ -105,6 +105,4 @@ def load_face_frames(
             print(f"Processed {i * 120} face video frames.")
             print(f"Valence: {valence} Arousal: {arousal}")
 
-    # Likely unecessary, why not though just to make sure
-    face_frames.sort(key=lambda f: f.timestamp)
     return face_frames
