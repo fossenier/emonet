@@ -1,2 +1,1 @@
-from .emonet import EmoNet
-
+from .emonet import EmoNet, load_emonet
