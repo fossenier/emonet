@@ -39,6 +39,8 @@ def load_screen_frames(
         if not ret:
             break
         screen_frames.append(ScreenFrame(current_time, frame))
+        if i % 60 == 0:
+            print(f"Processed {i} screen video frames")
         i += 1
 
     return screen_frames

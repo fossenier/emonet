@@ -102,7 +102,6 @@ def load_face_frames(
         face_frames.append(FaceFrame(current_time, valence, arousal, emotion))
 
         if i % 120 == 0:
-            print(f"Processed {i * 120} face video frames.")
-            print(f"Valence: {valence} Arousal: {arousal}")
+            print(f"Processed {i} face video frames.")
 
     return face_frames

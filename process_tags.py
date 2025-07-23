@@ -85,6 +85,9 @@ def load_tag_frames(tag_csv_path: str) -> List[TagFrame]:
         except Exception as e:
             return (False, f"Error reading file: {e}")
 
+    print("Processing tags")
+    tag_count = -2  # Exclude the two necesarry start tags
+
     # Resulting data
     tag_frames: List[TagFrame] = []
 
@@ -103,6 +106,7 @@ def load_tag_frames(tag_csv_path: str) -> List[TagFrame]:
     with open(tag_csv_path, "r") as file:
         for row in csv.DictReader(file):
             # Grab data in the appropriate types
+            tag_count += 1
             tag = row["tag"]
             timestamp = pd.to_datetime(row["timestamp"])
             visible = True if row["visible"] == "True" else False
@@ -131,4 +135,5 @@ def load_tag_frames(tag_csv_path: str) -> List[TagFrame]:
                     tag_frames.append(TagFrame(timestamp, tag, visible))
                 active[tag] -= 1
 
+    print(f"Processed {tag_count} tags")
     return tag_frames

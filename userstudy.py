@@ -4,7 +4,7 @@ Main entry point for processing the collected data in Parnian's userstudy
 iSE Lab - Logan Fossenier - July 2025
 """
 
-from collections import Counter
+from collections import Counter, deque
 from config import Config
 from emonet.models import load_emonet
 from face_alignment.detection.sfd.sfd_detector import SFDDetector
@@ -27,97 +27,99 @@ CONFIG = Config()
 
 
 def main():
+    print("Starting userstudy analysis")
     # Create output directory
     os.makedirs("./userstudy_output", exist_ok=True)
 
-    # Initialize EmoNet and face detector
+    # Initialize EmoNet and face detector onto the GPU
     emonet: torch.nn.Module = load_emonet(
         CONFIG.pretrained_path, CONFIG.emotion_count, CONFIG.device
     )
     sfd_detector = SFDDetector(CONFIG.device)
 
-    # Iterate through folders in input directory
-    for folder_name in os.listdir("./userstudy_input/"):
+    # Output is exactly one .mp4, they will all appear in the same output folder
+    # and get a unique name corresponding to their input folder
+    output_folder = Path("./userstudy_output/")
+    output_folder.mkdir(exist_ok=True)
+
+    input_folder_list = os.listdir("./userstudy_input/")
+    # Each folder in ./userstudy_input/ is considered a differnt test subject
+    for i, folder_name in enumerate(input_folder_list):
+        print(f"\nProcessing study {i} of {len(input_folder_list)}\n")
         folder_path = Path("./userstudy_input/") / folder_name
 
         if folder_path.is_dir():
-            # Create corresponding output folder
-            output_folder = Path("./userstudy_output/") / folder_name
-            output_folder.mkdir(exist_ok=True)
-
             # Get all files in the folder
             files = list(folder_path.glob("*"))
 
-            screen, face, tag, gp3 = None, None, None, None
+            # Look for each needed file, make None to protect future loop iterations
+            screen_file, face_file, tag_file, gp3_file = None, None, None, None
             found = 0
             # Identify files
             for file in files:
                 filename = file.name
-                print(f"Filename: {filename}")
-
-                # gp3 tracker export
+                # The GP3 Gazepoint software always exports .avi
                 if filename.endswith(".avi"):
                     found += 1
-                    screen = file
+                    screen_file = file
                 # TODO Parnian, if you record another format, just change this case
-                # user recording
+                # The ffmpg user recording is always in .mov
+                # TODO is it? it is on Mac at least...
                 elif filename.endswith(".mov"):
                     found += 1
-                    face = file
+                    face_file = file
+                # The VS Code extension must create the .csv to have tag_ in the name
                 elif "tag_" in filename and filename.endswith(".csv"):
                     found += 1
-                    tag = file
+                    tag_file = file
+                # The GP3 Gazepoint software always exports all_gaze this way
                 elif "all_gaze" in filename and filename.endswith(".csv"):
                     found += 1
-                    gp3 = file
+                    gp3_file = file
 
-            if not screen or not face or not tag or not gp3:
+            if not screen_file or not face_file or not tag_file or not gp3_file:
                 print(
                     "Aborting, some directories in ./userstudy_input/ are missing files."
-                )
-                print(
-                    f"{'screen' if screen else ''} {'face' if face else ''} {'tag' if tag else ''} {'gp3' if gp3 else ''}"
                 )
                 return
             if found != 4:
                 print(
                     "Aborting, some directories in ./userstudy_input/ have too many files."
                 )
+                print(
+                    "*or perhaps some names are triggering two search cases, look in the code*"
+                )
                 return
 
-            # Assume face capture is of form
+            # To synchronize the videos, determine the precise moment each one starts
+
+            # The VS Code extension will make ffmpeg store the date formatted in the filename
             # face_2025-07-22T11_02_44_6066.mov
-            # Extract timestamps
             face_time = pd.to_datetime(
-                str(face.name), format="face_%Y-%m-%dT%H_%M_%S_%f.mov"
+                str(face_file.name), format="face_%Y-%m-%dT%H_%M_%S_%f.mov"
             )
 
-            # Get TIME column from gp3 csv
-            gp3_df = pd.read_csv(gp3)
+            # GP3's software will handily give a precise start time in the all_gaze .csv file
+            gp3_df = pd.read_csv(gp3_file)
             time_col = [col for col in gp3_df.columns if "TIME" in col][0]
             gp3_time = pd.to_datetime(time_col, format="TIME(%Y/%m/%d %H:%M:%S.%f)")
 
+            # Parse the files for their data, these lists can be iterated chronologically
             face_frames: List[FaceFrame] = load_face_frames(
-                str(face.resolve()), face_time, emonet, sfd_detector
+                str(face_file.resolve()), face_time, emonet, sfd_detector
             )
             screen_frames: List[ScreenFrame] = load_screen_frames(
-                str(screen.resolve()), gp3_time
+                str(screen_file.resolve()), gp3_time
             )
-            tag_frames: List[TagFrame] = load_tag_frames(str(tag.resolve()))
-
-            print("Frames processed!")
-            print(
-                f"Valence: {face_frames[3].valence} Arousal: {face_frames[3].arousal}"
-            )
-
-            print(f"Screen 100 timestamp: {screen_frames[100].timestamp}")
-            print(f"Face 400 timestamp: {face_frames[400].timestamp}")
+            tag_frames: List[TagFrame] = load_tag_frames(str(tag_file.resolve()))
 
             #####
             # Now for the fun part, accumulating all the data into a video
             #####
             out_path = str(output_folder / (output_folder.name + "analysis.mp4"))
             process_video(screen_frames, face_frames, tag_frames, out_path)
+
+    print(f"###\nProcessed all {len(input_folder_list)} studies\n###")
 
 
 def accumulate_interval_data(
@@ -164,6 +166,102 @@ def create_graph_overlay(
     return graph_array
 
 
+def create_sliding_plot(
+    data_window, title="", color_positive="green", color_negative="red"
+):
+    """Create a styled matplotlib plot for valence/arousal sliding window"""
+    # Higher resolution for better line quality
+    fig, ax = plt.subplots(figsize=(4, 1.5), dpi=150)
+
+    # Set up the plot
+    ax.set_ylim(-1, 1)
+    ax.set_xlim(0, len(data_window) - 1)
+
+    # Remove x-axis labels
+    ax.set_xticks([])
+
+    # Style the plot
+    ax.set_facecolor("#f0f0f0")
+    fig.patch.set_facecolor("white")
+
+    # Add grid
+    ax.grid(True, alpha=0.3, linestyle="--")
+
+    # Add zero line
+    ax.axhline(y=0, color="black", linewidth=0.8, alpha=0.5)
+
+    # Get data
+    x = np.arange(len(data_window))
+    y = np.array(data_window)
+
+    # Plot the line with thinner linewidth
+    ax.plot(x, y, color="black", linewidth=1.5, zorder=3)
+
+    # Fill area under curve with proper color separation
+    ax.fill_between(
+        x, y, 0, where=(y >= 0), color=color_positive, alpha=0.3, interpolate=True  # type: ignore
+    )
+    ax.fill_between(
+        x, y, 0, where=(y <= 0), color=color_negative, alpha=0.3, interpolate=True  # type: ignore
+    )
+
+    ax.set_ylabel("", fontsize=8)
+    ax.set_title(title, fontsize=12, pad=10)
+
+    # Tight layout to prevent title cutoff
+    fig.tight_layout()
+
+    # Convert to numpy array
+    canvas = FigureCanvasAgg(fig)
+    canvas.draw()
+    buf = canvas.buffer_rgba()
+    plot_array = np.asarray(buf)[:, :, :3]  # RGB only
+    plt.close(fig)
+
+    return plot_array
+
+
+def create_info_panel(tags, emotion, width, height):
+    """Create an info panel with tags and emotion text"""
+    # Create white background
+    panel = np.ones((height, width, 3), dtype=np.uint8) * 255
+
+    # Add text
+    y_offset = 20
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    # Emotion text
+    cv2.putText(panel, f"Emotion: {emotion}", (10, y_offset), font, 0.6, (0, 0, 0), 1)
+    y_offset += 25
+
+    # Tags
+    if tags:
+        cv2.putText(panel, "Tags:", (10, y_offset), font, 0.6, (0, 0, 0), 1)
+        y_offset += 20
+
+        # Wrap tags if too many
+        tag_text = ", ".join(tags)
+        if len(tag_text) > 30:
+            words = tag_text.split(", ")
+            line = ""
+            for word in words:
+                if len(line) + len(word) < 30:
+                    line += word + ", "
+                else:
+                    cv2.putText(
+                        panel, line[:-2], (10, y_offset), font, 0.5, (0, 0, 0), 1
+                    )
+                    y_offset += 18
+                    line = word + ", "
+            if line:
+                cv2.putText(panel, line[:-2], (10, y_offset), font, 0.5, (0, 0, 0), 1)
+        else:
+            cv2.putText(panel, tag_text, (10, y_offset), font, 0.5, (0, 0, 0), 1)
+
+    return panel
+
+
+# Replace the process_video function with this updated version
 def process_video(
     screen_frames: List[ScreenFrame],
     face_frames: List[FaceFrame],
@@ -171,20 +269,35 @@ def process_video(
     output_path: str,
     fps: float = 10.0,
 ) -> None:
-    """Main processing loop."""
-    print(f"Tags! -> {[t.label for t in tag_frames]}")
+    """Main processing loop with sidebar visualization."""
 
     # Sort all frames by timestamp
     screen_frames.sort(key=lambda x: x.timestamp)
     face_frames.sort(key=lambda x: x.timestamp)
     tag_frames.sort(key=lambda x: x.timestamp)
 
-    # Initialize video writer
-    height, width = screen_frames[0].frame.shape[:2]
-    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    # Get original dimensions
+    orig_height, orig_width = screen_frames[0].frame.shape[:2]
 
-    valence_history = []
+    # Calculate new dimensions
+    # Main video on left, sidebar on right (half the height of original as width)
+    sidebar_width = orig_height // 2
+    total_width = orig_width + sidebar_width
+
+    # Initialize video writer with new dimensions
+    fourcc = cv2.VideoWriter.fourcc(*"mp4v")
+    out = cv2.VideoWriter(output_path, fourcc, fps, (total_width, orig_height))
+
+    # Initialize sliding windows
+    window_size = 50
+    valence_window = deque(maxlen=window_size)
+    arousal_window = deque(maxlen=window_size)
+
+    # Initialize with zeros
+    for _ in range(window_size):
+        valence_window.append(0.0)
+        arousal_window.append(0.0)
+
     visible_tags = set()
 
     for i, screen_frame in enumerate(screen_frames):
@@ -202,60 +315,71 @@ def process_video(
 
         # Aggregate emotions
         avg_valence, avg_arousal, mode_emotion = aggregate_emotions(interval_faces)
-        valence_history.append(avg_valence)
 
-        # Create visualization frame
-        vis_frame = screen_frame.frame.copy()
+        # Update sliding windows
+        valence_window.append(avg_valence)
+        arousal_window.append(avg_arousal)
 
-        # Add emotion text
-        cv2.putText(
-            vis_frame,
-            f"Emotion: {mode_emotion}",
-            (10, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1,
-            (0, 255, 0),
-            2,
+        # Create the main frame
+        main_frame = np.zeros((orig_height, total_width, 3), dtype=np.uint8)
+
+        # Place screen recording on the left
+        main_frame[:, :orig_width] = screen_frame.frame
+
+        # Create sidebar components
+        sidebar_height = orig_height
+        square_size = sidebar_width  # Since sidebar_width = orig_height // 2
+
+        # Upper square (empty for now - black background)
+        upper_square = np.zeros((square_size, square_size, 3), dtype=np.uint8)
+
+        # Lower square divided into three horizontal sections
+        section_height = square_size // 3
+
+        # Create valence plot
+        valence_plot = create_sliding_plot(valence_window, "Valence")
+        valence_plot_resized = cv2.resize(valence_plot, (square_size, section_height))
+
+        # Create arousal plot (using same green/red colors as valence)
+        arousal_plot = create_sliding_plot(
+            arousal_window, "Arousal", color_positive="green", color_negative="red"
         )
-        cv2.putText(
-            vis_frame,
-            f"V: {avg_valence:.2f} A: {avg_arousal:.2f}",
-            (10, 60),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 255, 0),
-            2,
-        )
+        arousal_plot_resized = cv2.resize(arousal_plot, (square_size, section_height))
 
-        # Add visible tags
+        # Update visible tags
         for t in interval_tags:
             if t.visible:
-                print(f"Tag!: {t.label} is visible")
                 visible_tags.add(t.label)
             else:
-                visible_tags.remove(t.label)
-                print(f"Tag!: {t.label} is not visible")
+                visible_tags.discard(t.label)
 
-        if len(visible_tags) > 0:
-            cv2.putText(
-                vis_frame,
-                f"Tags: {', '.join(visible_tags)}",
-                (10, 90),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.7,
-                (255, 255, 0),
-                2,
-            )
+        # Create info panel
+        info_panel = create_info_panel(
+            list(visible_tags), mode_emotion, square_size, section_height
+        )
 
-        # Add graph overlay
-        if len(valence_history) > 1:
-            graph = create_graph_overlay(valence_history)
-            graph_h, graph_w = graph.shape[:2]
-            vis_frame[
-                height - graph_h - 10 : height - 10, width - graph_w - 10 : width - 10
-            ] = graph
+        # Assemble sidebar
+        sidebar_x = orig_width
 
-        out.write(vis_frame)
+        # Upper square
+        main_frame[:square_size, sidebar_x:] = upper_square
+
+        # Lower square - three sections
+        y_offset = square_size
+        main_frame[y_offset : y_offset + section_height, sidebar_x:] = (
+            valence_plot_resized
+        )
+        y_offset += section_height
+        main_frame[y_offset : y_offset + section_height, sidebar_x:] = (
+            arousal_plot_resized
+        )
+        y_offset += section_height
+        main_frame[y_offset : y_offset + section_height, sidebar_x:] = info_panel
+
+        out.write(main_frame)
+
+        if i % 60 == 0:
+            print(f"Assembled {i} analysis output frames")
 
     out.release()
 
