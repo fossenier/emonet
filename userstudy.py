@@ -169,7 +169,7 @@ def create_graph_overlay(
 def create_sliding_plot(
     data_window, title="", color_positive="green", color_negative="red"
 ):
-    """Create a styled matplotlib plot for valence/arousal sliding window"""
+    """Create a styled matplotlib plot for valence/arousal sliding window with black background"""
     # Higher resolution for better line quality
     fig, ax = plt.subplots(figsize=(4, 1.5), dpi=150)
 
@@ -180,33 +180,43 @@ def create_sliding_plot(
     # Remove x-axis labels
     ax.set_xticks([])
 
-    # Style the plot
-    ax.set_facecolor("#f0f0f0")
-    fig.patch.set_facecolor("white")
+    # Style the plot with black background
+    ax.set_facecolor("black")
+    fig.patch.set_facecolor("black")
 
-    # Add grid
-    ax.grid(True, alpha=0.3, linestyle="--")
+    # Add grid with light color
+    ax.grid(True, alpha=0.3, linestyle="--", color="white")
 
-    # Add zero line
-    ax.axhline(y=0, color="black", linewidth=0.8, alpha=0.5)
+    # Add zero line in white
+    ax.axhline(y=0, color="white", linewidth=0.8, alpha=0.5)
 
     # Get data
     x = np.arange(len(data_window))
     y = np.array(data_window)
 
-    # Plot the line with thinner linewidth
-    ax.plot(x, y, color="black", linewidth=1.5, zorder=3)
+    # Plot the line in white
+    ax.plot(x, y, color="white", linewidth=1.5, zorder=3)
 
     # Fill area under curve with proper color separation
+    # For positive values (above 0)
     ax.fill_between(
-        x, y, 0, where=(y >= 0), color=color_positive, alpha=0.3, interpolate=True  # type: ignore
+        x, y, 0, where=(y >= 0), color=color_positive, alpha=0.8, interpolate=True  # type: ignore
     )
+    # For negative values (below 0)
     ax.fill_between(
-        x, y, 0, where=(y <= 0), color=color_negative, alpha=0.3, interpolate=True  # type: ignore
+        x, y, 0, where=(y <= 0), color=color_negative, alpha=0.8, interpolate=True  # type: ignore
     )
 
+    # Style y-axis label and ticks in white
     ax.set_ylabel("", fontsize=8)
-    ax.set_title(title, fontsize=12, pad=10)
+    ax.tick_params(axis="y", colors="white")
+
+    # Style title in white
+    ax.set_title(title, fontsize=12, pad=10, color="white")
+
+    # Set spines (borders) to white
+    for spine in ax.spines.values():
+        spine.set_color("white")
 
     # Tight layout to prevent title cutoff
     fig.tight_layout()
@@ -221,42 +231,228 @@ def create_sliding_plot(
     return plot_array
 
 
-def create_info_panel(tags, emotion, width, height):
-    """Create an info panel with tags and emotion text"""
-    # Create white background
-    panel = np.ones((height, width, 3), dtype=np.uint8) * 255
+def create_info_panel(tags, emotion, width, height, valence, arousal):
+    """Create an info panel with emotion, valence/arousal, and flagged moments
 
-    # Add text
-    y_offset = 20
+    Args:
+        tags: List of tags (used as flagged moments)
+        emotion: Predicted emotion string
+        width: Panel width in pixels
+        height: Panel height in pixels
+        valence: Float value for valence
+        arousal: Float value for arousal
+    """
+    import numpy as np
+    import cv2
+
+    # Create black background
+    panel = np.zeros((height, width, 3), dtype=np.uint8)
+
+    # Calculate box dimensions
+    box_height = height // 3
+
+    # Calculate font scale based on box dimensions
+    # Adjust these multipliers to fine-tune text size
+    base_font_scale = min(width / 400, box_height / 60)
     font = cv2.FONT_HERSHEY_SIMPLEX
+    thickness = max(1, int(base_font_scale * 2))
 
-    # Emotion text
-    cv2.putText(panel, f"Emotion: {emotion}", (10, y_offset), font, 0.6, (0, 0, 0), 1)
-    y_offset += 25
+    # Helper function to get text color based on value
+    def get_value_color(value):
+        if value > 0:
+            return (0, 255, 0)  # Green for positive
+        elif value < 0:
+            return (0, 0, 255)  # Red for negative
+        else:
+            return (255, 255, 255)  # White for zero
 
-    # Tags
+    # Box 1: Predicted emotion
+    y_center = box_height // 2
+    text = f"Predicted emotion: {emotion}"
+    text_size = cv2.getTextSize(text, font, base_font_scale, thickness)[0]
+    text_y = y_center + text_size[1] // 2
+    cv2.putText(
+        panel, text, (20, text_y), font, base_font_scale, (255, 255, 255), thickness
+    )
+
+    # Box 2: Valence and Arousal (split into two columns)
+    box_width = width // 2
+
+    # Calculate vertical center for both valence and arousal
+    valence_text = f"Valence: {valence:.2f}"
+    arousal_text = f"Arousal: {arousal:.2f}"
+
+    # Get text heights to center vertically
+    text_size_v = cv2.getTextSize(valence_text, font, base_font_scale, thickness)[0]
+    text_size_a = cv2.getTextSize(arousal_text, font, base_font_scale, thickness)[0]
+
+    # Center position for second box
+    y_center = box_height + box_height // 2 + text_size_v[1] // 2
+
+    # Valence (left half)
+    text_parts = valence_text.split(": ")
+
+    # Draw "Valence: " in white
+    cv2.putText(
+        panel,
+        text_parts[0] + ": ",
+        (20, y_center),
+        font,
+        base_font_scale,
+        (255, 255, 255),
+        thickness,
+    )
+
+    # Get width of "Valence: " to position the number
+    label_size = cv2.getTextSize(
+        text_parts[0] + ": ", font, base_font_scale, thickness
+    )[0]
+
+    # Draw the value in appropriate color
+    cv2.putText(
+        panel,
+        text_parts[1],
+        (20 + label_size[0], y_center),
+        font,
+        base_font_scale,
+        get_value_color(valence),
+        thickness,
+    )
+
+    # Arousal (right half)
+    text_parts = arousal_text.split(": ")
+
+    # Draw "Arousal: " in white
+    cv2.putText(
+        panel,
+        text_parts[0] + ": ",
+        (box_width + 20, y_center),
+        font,
+        base_font_scale,
+        (255, 255, 255),
+        thickness,
+    )
+
+    # Get width of "Arousal: " to position the number
+    label_size = cv2.getTextSize(
+        text_parts[0] + ": ", font, base_font_scale, thickness
+    )[0]
+
+    # Draw the value in appropriate color
+    cv2.putText(
+        panel,
+        text_parts[1],
+        (box_width + 20 + label_size[0], y_center),
+        font,
+        base_font_scale,
+        get_value_color(arousal),
+        thickness,
+    )
+
+    # Box 3: Flagged moments
+    y_center = 2 * box_height + box_height // 2
     if tags:
-        cv2.putText(panel, "Tags:", (10, y_offset), font, 0.6, (0, 0, 0), 1)
-        y_offset += 20
+        # Draw "Flagged moments: " in red
+        label_text = "Flags: "
+        label_size = cv2.getTextSize(label_text, font, base_font_scale, thickness)[0]
 
-        # Wrap tags if too many
-        tag_text = ", ".join(tags)
-        if len(tag_text) > 30:
-            words = tag_text.split(", ")
-            line = ""
+        # Join tags with comma separation
+        tags_text = ", ".join(tags)
+
+        # Check if full text needs wrapping
+        full_text = label_text + tags_text
+        text_size = cv2.getTextSize(full_text, font, base_font_scale, thickness)[0]
+
+        if text_size[0] > width - 40:
+            # Simple wrapping for long text
+            words = tags_text.split(", ")
+            lines = [(label_text, True)]  # First line with label (True = is label)
+            current_line = ""
+
             for word in words:
-                if len(line) + len(word) < 30:
-                    line += word + ", "
+                test_line = current_line + ", " + word if current_line else word
+                test_size = cv2.getTextSize(
+                    label_text + test_line if not lines[0][0] else test_line,
+                    font,
+                    base_font_scale,
+                    thickness,
+                )[0]
+
+                if test_size[0] <= width - 40:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        if len(lines) == 1:
+                            lines[0] = (label_text + current_line, False)
+                        else:
+                            lines.append((current_line, False))
+                    current_line = word
+
+            if current_line:
+                if len(lines) == 1:
+                    lines[0] = (label_text + current_line, False)
+                else:
+                    lines.append((current_line, False))
+
+            # Draw wrapped text centered in the box
+            total_height = len(lines) * text_size[1]
+            start_y = 2 * box_height + (box_height - total_height) // 2 + text_size[1]
+
+            for i, (line, is_label) in enumerate(lines):
+                y_pos = start_y + i * int(text_size[1] * 1.2)
+                if i == 0:
+                    # First line - draw label in red and rest in white
+                    cv2.putText(
+                        panel,
+                        label_text,
+                        (20, y_pos),
+                        font,
+                        base_font_scale,
+                        (0, 0, 255),
+                        thickness,
+                    )
+                    rest_text = line[len(label_text) :]
+                    cv2.putText(
+                        panel,
+                        rest_text,
+                        (20 + label_size[0], y_pos),
+                        font,
+                        base_font_scale,
+                        (255, 255, 255),
+                        thickness,
+                    )
                 else:
                     cv2.putText(
-                        panel, line[:-2], (10, y_offset), font, 0.5, (0, 0, 0), 1
+                        panel,
+                        line,
+                        (20, y_pos),
+                        font,
+                        base_font_scale,
+                        (255, 255, 255),
+                        thickness,
                     )
-                    y_offset += 18
-                    line = word + ", "
-            if line:
-                cv2.putText(panel, line[:-2], (10, y_offset), font, 0.5, (0, 0, 0), 1)
         else:
-            cv2.putText(panel, tag_text, (10, y_offset), font, 0.5, (0, 0, 0), 1)
+            # Draw single line centered
+            text_y = y_center + text_size[1] // 2
+            cv2.putText(
+                panel,
+                label_text,
+                (20, text_y),
+                font,
+                base_font_scale,
+                (0, 0, 255),
+                thickness,
+            )
+            cv2.putText(
+                panel,
+                tags_text,
+                (20 + label_size[0], text_y),
+                font,
+                base_font_scale,
+                (255, 255, 255),
+                thickness,
+            )
+    # If no tags, nothing is displayed
 
     return panel
 
@@ -300,6 +496,22 @@ def process_video(
 
     visible_tags = set()
 
+    # Load the image once before the loop
+    try:
+        placeholder_img = cv2.imread(
+            "./images/circumplex.png"
+        )  # Replace with your image path
+        if placeholder_img is None:
+            # Create a placeholder if image not found
+            placeholder_img = np.ones((100, 100, 3), dtype=np.uint8) * 128
+        # Resize to square size
+        square_size = sidebar_width
+        placeholder_img = cv2.resize(placeholder_img, (square_size, square_size))
+    except:
+        # Fallback to gray square if image loading fails
+        square_size = sidebar_width
+        placeholder_img = np.ones((square_size, square_size, 3), dtype=np.uint8) * 128
+
     for i, screen_frame in enumerate(screen_frames):
         current_time = screen_frame.timestamp
         next_time = (
@@ -330,8 +542,30 @@ def process_video(
         sidebar_height = orig_height
         square_size = sidebar_width  # Since sidebar_width = orig_height // 2
 
-        # Upper square (empty for now - black background)
-        upper_square = np.zeros((square_size, square_size, 3), dtype=np.uint8)
+        # Upper square - create emotion plot on top of the image
+        upper_square = placeholder_img.copy()
+
+        # Draw the emotion circle
+        # Define the invisible circle space (7/8 of the way to edge)
+        center_x = square_size // 2
+        center_y = square_size // 2
+        max_radius = (square_size // 2) * 7 // 8
+
+        # Map valence (-1 to 1) to x position
+        # valence -1 = left edge of circle, valence 1 = right edge of circle
+        circle_x = int(center_x + (avg_valence * max_radius))
+
+        # Map arousal (-1 to 1) to y position
+        # arousal 1 = top of circle (lower y value), arousal -1 = bottom of circle (higher y value)
+        circle_y = int(center_y - (avg_arousal * max_radius))
+
+        # Draw the red circle
+        cv2.circle(
+            upper_square, (circle_x, circle_y), 8, (0, 0, 255), -1
+        )  # Red filled circle
+        cv2.circle(
+            upper_square, (circle_x, circle_y), 10, (0, 0, 0), 2
+        )  # Black outline
 
         # Lower square divided into three horizontal sections
         section_height = square_size // 3
@@ -355,7 +589,12 @@ def process_video(
 
         # Create info panel
         info_panel = create_info_panel(
-            list(visible_tags), mode_emotion, square_size, section_height
+            list(visible_tags),
+            mode_emotion,
+            square_size,
+            section_height,
+            avg_valence,
+            avg_arousal,
         )
 
         # Assemble sidebar

@@ -8,7 +8,7 @@ Logan Fossenier July 2025
 class Config:
     def __init__(self) -> None:
         self.pretrained_path: str = (
-            "/Users/admin/projects/monorepo/emonet/pretrained/emonet_8.pth"  # state dict
+            "/u2/users/hzv143/parnian/pretrained/emonet_8.pth"  # state dict
         )
         self.emotion_classes = {
             0: "Neutral",
@@ -21,5 +21,5 @@ class Config:
             7: "Contempt",
         }  # hard coded to the 8 classification mode
         self.image_size = 256  # 256 x 256 input
-        self.device = "cuda:0"  # use the A100
+        self.device = "cuda:2"  # use the A100
         self.emotion_count = len(self.emotion_classes)  # which classification mode
